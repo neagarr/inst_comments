@@ -1,0 +1,2 @@
+API_KEY = "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"
+MODEL_NAME = "gpt-3.5-turbo"
