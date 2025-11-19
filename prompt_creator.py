@@ -4,26 +4,73 @@ session = Session()
 
 # Вводное начало для нейросети
 INSTRUCTION = """
-You are an AI assistant for analyzing social media comments. 
+You are an advanced AI assistant for analyzing Instagram comments.
 You will be given a comment (or a chain of comments) and the post summary it belongs to
 Some comments may be replies to other comments (child comments). 
 You must analyze each comment individually but take into account the full context:
 - for parent comments: use the post summary;
 - for child comments: use the post summary plus all parent comments in the chain.
-Your goal is to classify the sentiment, detect targeted mentions, and identify specific narratives or patterns of coordination.
+Your task is to classify each comment precisely and conservatively.  
+DO NOT GUESS. If there is any uncertainty – output false or "unclear".
+You will get INPUT DATA, INPUT DESCRIPTION, RULES for answering.
 """
 
 # Описание структуры входных данных
 INPUT_DESCRIPTION = """
 The input data is provided as text in the following format:
 - "Post Summary": a short summary of the original post.
-- "Comment Text": the text of the comment.
-- "Parent Comments": (optional) concatenated text of all parent comments, in order from top to immediate parent.
+- "Comment Text": the text of the comment to analyze, prefixed by the account ID.
+- "Parent Comments": (optional) concatenated text of all parent comments, prefixed by the account ID, in order from top to immediate parent.
 """
 
-# Формат JSON, который мы хотим получить
-JSON_FORMAT = """
-Answer in the following JSON format:
+RULES = """
+GENERAL RULES:
+- Evaluate ONLY based on explicit or strongly implied content.
+- Do not classify positive emotions as support unless the comment explicitly supports the post’s message.
+- Do not classify criticism unless the target is clearly mentioned.
+- If meaning is ambiguous → choose "unclear" or false.
+
+SENTIMENT RULES:
+- "support" = the comment clearly agrees with the post’s message or its arguments.
+- "disagree" = the comment clearly opposes the post, debates it, or rejects the post’s claims.
+- "unclear" = when the sentiment cannot be confidently identified.
+
+TARGETED CRITICISM RULES:
+- against_northwest = true ONLY if the comment criticizes NorthWest Shelf by name.
+- against_shelf = true ONLY if the comment criticizes Woodside (but NOT NorthWest Shelf).
+- against_burrup = true ONLY if the comment criticizes Burrup Hub.
+
+NARRATIVE A RULES:
+This narrative is true only if the comment refers (directly or indirectly) to:
+- climate risk,
+- environmental harm,
+- emissions,
+- inconsistency with climate goals,
+- failure to meet 1.5°C pathway,
+- environmental destruction caused by Woodside projects.
+
+Emotion-only comments (“I hate Woodside”) do NOT count.
+
+NARRATIVE B RULES:
+This narrative is true only if the comment contains:
+- mention of shareholders,
+- investors,
+- owners,
+- corporate governance,
+- profit motives,
+- interest groups controlling or influencing the company,
+- accusations of manipulating investors or financial motives.
+
+General discussion about Woodside (“Woodside is bad”) does NOT count.
+
+ACCUATION OF MISINFORMATION:
+- true ONLY if the user accuses the author of lying, spreading fake news, misleading statistics, misinformation, propaganda.
+
+COORDINATION SIGNS:
+- true ONLY if there is a clear sign of non-authentic behavior, repeated patterns, bot-like phrases, coordinated posting.
+- Do NOT assume coordination unless it is explicit or strongly implied.
+
+OUTPUT STRICTLY IN THIS JSON FORMAT:
 {
   "comment_status": "support / disagree / unclear",
   "against_northwest": true/false,
@@ -36,32 +83,47 @@ Answer in the following JSON format:
 }
 """
 
-# Нарративы, которые используются для анализа
-NARRATIVES = {
-    "narrative_a": "Existing and planned Woodside assets are inconsistent with international climate targets and the 1.5°C pathway",
-    "narrative_b": "Discussions about shareholders, ownership, or corporate interests"
-}
+# # Формат JSON, который мы хотим получить
+# JSON_FORMAT = """
+# Answer in the following JSON format:
+# {
+#   "comment_status": "support / disagree / unclear",
+#   "against_northwest": true/false,
+#   "against_shelf": true/false,
+#   "against_burrup": true/false,
+#   "narrative_a": true/false,
+#   "narrative_b": true/false,
+#   "accusation_of_lies": true/false,
+#   "coordination_signs": true/false
+# }
+# """
 
-# Список детальных вопросов для ChatGPT
-QUESTIONS = [
-    # sentiment
-    "Based on the comment and the post context, classify the sentiment of this comment: support, disagree, or unclear. -> comment_status",
+# # Нарративы, которые используются для анализа
+# NARRATIVES = {
+#     "narrative_a": "Existing and planned Woodside assets are inconsistent with international climate targets and the 1.5°C pathway",
+#     "narrative_b": "Discussions about shareholders, ownership, or corporate interests"
+# }
+
+# # Список детальных вопросов для ChatGPT
+# QUESTIONS = [
+#     # sentiment
+#     "Based on the comment and the post context, classify the sentiment of this comment: support, disagree, or unclear. -> comment_status",
     
-    # targeting specific entities
-    "Does the comment criticize NorthWest Shelf? -> against_northwest",
-    "Does the comment criticize Woodside? -> against_shelf",
-    "Does the comment criticize Burrup Hub? -> against_burrup",
+#     # targeting specific entities
+#     "Does the comment criticize NorthWest Shelf? -> against_northwest",
+#     "Does the comment criticize Woodside? -> against_shelf",
+#     "Does the comment criticize Burrup Hub? -> against_burrup",
     
-    # narratives
-    f"Does the comment express Narrative A: '{NARRATIVES['narrative_a']}'? -> narrative_a",
-    f"Does the comment express Narrative B: '{NARRATIVES['narrative_b']}'? -> narrative_b",
+#     # narratives
+#     f"Does the comment express Narrative A: '{NARRATIVES['narrative_a']}'? -> narrative_a",
+#     f"Does the comment express Narrative B: '{NARRATIVES['narrative_b']}'? -> narrative_b",
     
-    # accusation of lies
-    "Does the comment accuse the post author of lying, providing misleading information, fake news, or incorrect statistics? -> accusation_of_lies",
+#     # accusation of lies
+#     "Does the comment accuse the post author of lying, providing misleading information, fake news, or incorrect statistics? -> accusation_of_lies",
     
-    # coordination signs
-    "Are there signs that this comment is coordinated with other comments, or posted by non-authentic accounts? -> coordination_signs"
-]
+#     # coordination signs
+#     "Are there signs that this comment is coordinated with other comments, or posted by non-authentic accounts? -> coordination_signs"
+# ]
 
 def format_parent_comments(parent_comments_list):
     """
@@ -101,12 +163,12 @@ Parent Comments:
 Comment Text:
 {comment_text_formatted}
 
-{INPUT_DESCRIPTION}
 
-Questions to answer:
-- {"\n- ".join(QUESTIONS)}
+INPUT_DESCRIPTION:
+"{INPUT_DESCRIPTION}"
 
-{JSON_FORMAT}
+RULES:
+"{RULES}"
 """
     return prompt.strip()
 
